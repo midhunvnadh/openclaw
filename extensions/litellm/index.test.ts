@@ -11,6 +11,7 @@ import {
   type WizardPrompter,
 } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { clearLiveCatalogCacheForTests } from "openclaw/plugin-sdk/provider-catalog-live-runtime";
+import { WizardCancelledError } from "openclaw/plugin-sdk/setup";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRuntimeSpies } from "../test-support/runtime-spies.js";
 import plugin from "./index.js";
@@ -202,21 +203,39 @@ describe("litellm plugin", () => {
     );
   });
 
+  it("honors switching an existing remote proxy back to the default URL", async () => {
+    const prompter = createTestWizardPrompter({
+      text: vi.fn(async () => "http://localhost:4000") as WizardPrompter["text"],
+    });
+
+    const result = await runInteractiveAuth({
+      config: {
+        models: { providers: { litellm: { baseUrl: "https://old.example", models: [] } } },
+      },
+      prompter,
+    });
+
+    expect(result?.configPatch?.models?.providers?.litellm?.baseUrl).toBe("http://localhost:4000");
+  });
+
   it.each([
     { answer: "not-a-url", expected: "Enter a full URL, such as http://localhost:4000" },
     { answer: "ftp://litellm.example", expected: "must start with http:// or https://" },
-  ])("rejects $answer at the proxy prompt", async ({ answer, expected }) => {
-    let validation: ((value: string) => string | undefined) | undefined;
+  ])("blocks $answer at the proxy prompt", async ({ answer, expected }) => {
     const prompter = createTestWizardPrompter({
-      text: vi.fn(async (params) => {
-        validation = params.validate;
-        return answer;
+      text: vi.fn(async ({ validate }) => {
+        expect(validate).toBeTypeOf("function");
+        expect(validate?.(answer)).toContain(expected);
+        for (const accepted of ["", "http://localhost:4000", "https://litellm.example/v1"]) {
+          expect(validate?.(accepted)).toBeUndefined();
+        }
+        // The real prompter refuses to submit while validate returns an error, so a
+        // rejected URL never reaches the config patch.
+        throw new WizardCancelledError();
       }) as WizardPrompter["text"],
     });
 
-    await runInteractiveAuth({ prompter });
-
-    expect(validation?.(answer)).toContain(expected);
+    await expect(runInteractiveAuth({ prompter })).rejects.toThrow(WizardCancelledError);
   });
 
   it.each([

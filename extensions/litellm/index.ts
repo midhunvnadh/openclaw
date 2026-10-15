@@ -68,9 +68,11 @@ async function promptLitellmBaseUrl(ctx: ProviderAuthContext): Promise<string | 
     validate: validateProxyBaseUrl,
   });
   const chosen = answer.trim().replace(/\/+$/, "");
-  // Accepting the prefilled default must not read as an explicit URL: `applyLitellmConfig`
-  // seeds a usable default model only when no base URL is recorded.
-  return chosen === LITELLM_BASE_URL ? undefined : chosen;
+  // Accepting the prefilled default must not read as an explicit URL, because
+  // `applyLitellmConfig` seeds a usable default model only when no base URL is recorded.
+  // An existing URL still has to be replaceable, so an explicit switch back to the
+  // default proxy has to land rather than leave the old proxy in place.
+  return chosen === LITELLM_BASE_URL && !configured ? undefined : chosen;
 }
 
 export default definePluginEntry({
