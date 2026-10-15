@@ -173,8 +173,11 @@ describe("litellm plugin", () => {
     expect(prompter.text).toHaveBeenCalledWith(
       expect.objectContaining({
         message: "LiteLLM proxy base URL",
-        initialValue: "http://localhost:4000",
+        placeholder: "http://localhost:4000",
       }),
+    );
+    expect(prompter.text).toHaveBeenCalledWith(
+      expect.objectContaining({ initialValue: undefined }),
     );
     expect(result?.configPatch?.models?.providers?.litellm).toStrictEqual({
       baseUrl: expectedBaseUrl,

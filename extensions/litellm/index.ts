@@ -63,7 +63,9 @@ async function promptLitellmBaseUrl(ctx: ProviderAuthContext): Promise<string | 
     findNormalizedProviderValue(ctx.config.models?.providers, PROVIDER_ID)?.baseUrl?.trim() ?? "";
   const answer = await ctx.prompter.text({
     message: "LiteLLM proxy base URL",
-    initialValue: configured || LITELLM_BASE_URL,
+    // Prefilling the default would make typed input append to it; hint it instead and
+    // only prefill when there is a real value the operator may want to edit.
+    initialValue: configured || undefined,
     placeholder: LITELLM_BASE_URL,
     validate: validateProxyBaseUrl,
   });
