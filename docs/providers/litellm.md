@@ -18,6 +18,9 @@ spend limits, and backend failover without changing OpenClaw config.
     openclaw onboard --auth-choice litellm-api-key
     ```
 
+    Onboarding prompts for the proxy base URL. Press Enter to keep the `http://localhost:4000`
+    default, or enter your proxy's URL.
+
     For non-interactive setup against a remote proxy, pass the proxy URL explicitly:
 
     ```bash
