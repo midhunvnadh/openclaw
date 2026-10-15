@@ -23,7 +23,10 @@ function applyLitellmBaseUrl(cfg: OpenClawConfig, baseUrl: unknown): OpenClawCon
   if (!normalized) {
     return cfg;
   }
-  const existingProvider = cfg.models?.providers?.[PROVIDER_ID];
+  // Resolve the row the way the shared preset resolves it. Reading the exact lowercase
+  // key would miss a case-variant row, and the fresh row written here takes precedence
+  // over it, dropping the operator's authored models and options.
+  const existingProvider = findNormalizedProviderValue(cfg.models?.providers, PROVIDER_ID);
   return {
     ...cfg,
     models: {

@@ -221,6 +221,49 @@ describe("litellm plugin", () => {
     expect(result?.configPatch?.models?.providers?.litellm?.baseUrl).toBe("http://localhost:4000");
   });
 
+  it("preserves authored models and options from a case-variant provider row", async () => {
+    const authored = [
+      {
+        id: "custom-model",
+        name: "Custom",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 1000,
+        maxTokens: 100,
+      },
+    ];
+
+    const result = await runInteractiveAuth({
+      config: {
+        models: {
+          providers: {
+            LiteLLM: {
+              baseUrl: "https://old.example/v1",
+              api: "anthropic-messages",
+              apiKey: "old-key",
+              request: { allowPrivateNetwork: true },
+              models: authored,
+            },
+          },
+        },
+      } as unknown as OpenClawConfig,
+      prompter: createTestWizardPrompter({
+        text: vi.fn(async () => "https://old.example/v1") as WizardPrompter["text"],
+      }),
+    });
+
+    expect(result?.configPatch?.models?.providers).toStrictEqual({
+      litellm: {
+        baseUrl: "https://old.example/v1",
+        api: "openai-completions",
+        apiKey: "old-key",
+        request: { allowPrivateNetwork: true },
+        models: authored,
+      },
+    });
+  });
+
   it.each([
     { answer: "not-a-url", expected: "Enter a full URL, such as http://localhost:4000" },
     { answer: "ftp://litellm.example", expected: "must start with http:// or https://" },
