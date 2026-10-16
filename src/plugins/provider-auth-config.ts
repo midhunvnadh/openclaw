@@ -33,6 +33,7 @@ export async function writeProviderAuthConfig(params: {
   beforeCommit?: () => void;
   writeOptions?: ConfigWriteOptions;
 }): Promise<OpenClawConfig> {
+  // This is an RFC delta, not a whole auth result: never seed it with source rows.
   const configPatch = normalizeProviderAuthRows(params.configPatch);
   const loginConfig = applyProviderAuthConfigPatch(params.config, {});
   const sourceConfig = applyProviderAuthConfigPatch(params.configSnapshot.sourceConfig, {});

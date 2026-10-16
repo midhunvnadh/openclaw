@@ -1,4 +1,5 @@
 // Normalizes provider auth choice metadata from plugin setup surfaces.
+import { isDeepStrictEqual } from "node:util";
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import { isRecord as isPlainRecord } from "@openclaw/normalization-core/record-coerce";
 import {
@@ -62,8 +63,16 @@ function mergeConfigPatch<T>(
   base: T,
   patch: unknown,
   merge = true,
-  options?: { preserveUndefined?: boolean; mergeModelsById?: boolean },
+  options?: { preserveUndefined?: boolean; mergeModelsById?: boolean; source?: unknown },
 ): T {
+  if (
+    patch !== undefined &&
+    options &&
+    Object.hasOwn(options, "source") &&
+    isDeepStrictEqual(patch, options.source)
+  ) {
+    return base;
+  }
   if (Array.isArray(patch)) {
     if (
       options?.mergeModelsById &&
@@ -72,6 +81,11 @@ function mergeConfigPatch<T>(
       patch.every(isProviderModelRow)
     ) {
       const models = new Map(base.map((model) => [model.id, model]));
+      const sourceModels = new Map(
+        (Array.isArray(options.source) ? options.source.filter(isProviderModelRow) : []).map(
+          (model) => [model.id, model],
+        ),
+      );
       for (const model of patch) {
         const previous = models.get(model.id);
         models.set(
@@ -79,10 +93,12 @@ function mergeConfigPatch<T>(
           previous
             ? mergeConfigPatch(previous, model, true, {
                 preserveUndefined: options.preserveUndefined,
+                ...(sourceModels.has(model.id) ? { source: sourceModels.get(model.id) } : {}),
               })
             : model,
         );
       }
+      // SAFETY: ID folding keeps the config array's row shape; the config owner validates fields.
       return [...models.values()] as T;
     }
     // Replacements are sanitized copies; undefined deletes only during object merging.
@@ -93,6 +109,7 @@ function mergeConfigPatch<T>(
   }
 
   const next: Record<string, unknown> = merge && isPlainRecord(base) ? { ...base } : {};
+  const source = isPlainRecord(options?.source) ? options.source : undefined;
   for (const [key, value] of Object.entries(patch)) {
     if (isBlockedObjectKey(key)) {
       continue;
@@ -105,14 +122,18 @@ function mergeConfigPatch<T>(
       next[key],
       value,
       merge,
-      options && { ...options, mergeModelsById: options.mergeModelsById && key === "models" },
+      options && {
+        preserveUndefined: options.preserveUndefined,
+        mergeModelsById: options.mergeModelsById && key === "models",
+        ...(source && Object.hasOwn(source, key) ? { source: source[key] } : {}),
+      },
     );
   }
   return next as T;
 }
 
-/** Fold auth provider row keys without applying defaults or consuming patch deletions. */
-export function normalizeProviderAuthRows<T>(value: T): T {
+/** Fold auth provider rows without defaults; raw source distinguishes edits from copied config. */
+export function normalizeProviderAuthRows<T>(value: T, sourceConfig?: unknown): T {
   if (
     !isPlainRecord(value) ||
     !isPlainRecord(value.models) ||
@@ -120,30 +141,47 @@ export function normalizeProviderAuthRows<T>(value: T): T {
   ) {
     return value;
   }
+  const sourceProviders =
+    isPlainRecord(sourceConfig) &&
+    isPlainRecord(sourceConfig.models) &&
+    isPlainRecord(sourceConfig.models.providers)
+      ? sourceConfig.models.providers
+      : undefined;
   const rows = Object.entries(value.models.providers)
     .map(([key, row]) => ({ key, row, provider: normalizeProviderId(key) }))
     .sort(
       (left, right) => Number(left.key === left.provider) - Number(right.key === right.provider),
     );
-  const providers = new Map<string, unknown>();
-  let changed = false;
+  const providers = new Map<string, unknown>(
+    sourceProviders
+      ? Object.entries(
+          normalizeProviderAuthRows({ models: { providers: sourceProviders } }).models.providers,
+        )
+      : [],
+  );
+  let changed = Boolean(sourceProviders);
   for (const { key, row, provider } of rows) {
     const duplicate = providers.has(provider);
     changed ||= key !== provider || duplicate;
-    // Exact canonical rows win; model options from aliases survive by model id.
+    // Canonical source rows win; auth edits replay over unchanged copied fields.
     providers.set(
       provider,
       duplicate
         ? mergeConfigPatch(providers.get(provider), row, true, {
             preserveUndefined: true,
             mergeModelsById: true,
+            ...(sourceProviders && Object.hasOwn(sourceProviders, key)
+              ? { source: sourceProviders[key] }
+              : {}),
           })
         : row,
     );
   }
-  return changed
-    ? ({ ...value, models: { ...value.models, providers: Object.fromEntries(providers) } } as T)
-    : value;
+  if (!changed) {
+    return value;
+  }
+  // SAFETY: Only provider record keys/values change; the surrounding config shape is preserved.
+  return { ...value, models: { ...value.models, providers: Object.fromEntries(providers) } } as T;
 }
 
 function normalizeAgentModelConfigForWrite(value: unknown): unknown {
@@ -307,7 +345,7 @@ export function applyProviderAuthConfigPatch(
   const providerConfigNormalizer =
     options?.providerConfigNormalizer ?? normalizeProviderConfigForConfigDefaults;
   const merged = normalizeConfigModelRefsForWrite(
-    mergeConfigPatch(normalizeProviderAuthRows(cfg), normalizeProviderAuthRows(patch)),
+    mergeConfigPatch(normalizeProviderAuthRows(cfg), normalizeProviderAuthRows(patch, cfg)),
     providerConfigNormalizer,
   );
   if (!options?.replaceDefaultModels || !isPlainRecord(patch)) {

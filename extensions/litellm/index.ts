@@ -23,7 +23,9 @@ function applyLitellmBaseUrl(cfg: OpenClawConfig, baseUrl: unknown): OpenClawCon
     return cfg;
   }
   // Preserve authored settings even when the provider key uses different casing.
-  const existingProvider = findNormalizedProviderValue(cfg.models?.providers, PROVIDER_ID);
+  const existingProvider =
+    cfg.models?.providers?.[PROVIDER_ID] ??
+    findNormalizedProviderValue(cfg.models?.providers, PROVIDER_ID);
   return {
     ...cfg,
     models: {
@@ -56,7 +58,10 @@ function validateProxyBaseUrl(value: string): string | undefined {
 
 async function promptLitellmBaseUrl(ctx: ProviderAuthContext): Promise<string | undefined> {
   const configured =
-    findNormalizedProviderValue(ctx.config.models?.providers, PROVIDER_ID)?.baseUrl?.trim() ?? "";
+    (
+      ctx.config.models?.providers?.[PROVIDER_ID] ??
+      findNormalizedProviderValue(ctx.config.models?.providers, PROVIDER_ID)
+    )?.baseUrl?.trim() ?? "";
   const answer = await ctx.prompter.text({
     message: "LiteLLM proxy base URL",
     // Prefilling the default would make typed input append to it; hint it instead and

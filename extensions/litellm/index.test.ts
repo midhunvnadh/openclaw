@@ -11,7 +11,10 @@ import {
   type WizardPrompter,
 } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { clearLiveCatalogCacheForTests } from "openclaw/plugin-sdk/provider-catalog-live-runtime";
-import type { ModelDefinitionConfig } from "openclaw/plugin-sdk/provider-onboard";
+import type {
+  ModelDefinitionConfig,
+  ModelProviderConfig,
+} from "openclaw/plugin-sdk/provider-onboard";
 import { WizardCancelledError } from "openclaw/plugin-sdk/setup";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRuntimeSpies } from "../test-support/runtime-spies.js";
@@ -222,48 +225,62 @@ describe("litellm plugin", () => {
     expect(result?.configPatch?.models?.providers?.litellm?.baseUrl).toBe("http://localhost:4000");
   });
 
-  it("preserves authored models and options from a case-variant provider row", async () => {
-    const authored: ModelDefinitionConfig[] = [
-      {
-        id: "custom-model",
-        name: "Custom",
-        reasoning: false,
-        input: ["text"],
-        cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 1000,
-        maxTokens: 100,
-      },
-    ];
-
-    const result = await runInteractiveAuth({
-      config: {
-        models: {
-          providers: {
-            LiteLLM: {
-              baseUrl: "https://old.example/v1",
-              api: "anthropic-messages",
-              apiKey: "old-key",
-              request: { allowPrivateNetwork: true },
-              models: authored,
-            },
-          },
+  it.each([false, true])(
+    "preserves authored settings with a canonical row present: %s",
+    async (withCanonical) => {
+      const authored: ModelDefinitionConfig[] = [
+        {
+          id: "custom-model",
+          name: "Custom",
+          reasoning: false,
+          input: ["text"],
+          cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 1000,
+          maxTokens: 100,
         },
-      },
-      prompter: createTestWizardPrompter({
-        text: vi.fn(async () => "https://old.example/v1") as WizardPrompter["text"],
-      }),
-    });
+      ];
 
-    expect(result?.configPatch?.models?.providers).toStrictEqual({
-      litellm: {
+      const alias: ModelProviderConfig = {
         baseUrl: "https://old.example/v1",
-        api: "openai-completions",
+        api: "anthropic-messages",
         apiKey: "old-key",
         request: { allowPrivateNetwork: true },
         models: authored,
-      },
-    });
-  });
+      };
+      const canonical: ModelProviderConfig = {
+        ...alias,
+        baseUrl: "https://canonical.example/v1",
+        apiKey: "canonical-key",
+        models: authored.map((model) => ({ ...model, params: { temperature: 0.3 } })),
+      };
+      const selected = withCanonical ? canonical : alias;
+      const initialValue = selected.baseUrl;
+      const expectedProvider = {
+        ...structuredClone(selected),
+        baseUrl: "https://selected.example/v1",
+        api: "openai-completions",
+      };
+      const prompter = createTestWizardPrompter({
+        text: vi.fn(async () => "https://selected.example/v1") as WizardPrompter["text"],
+      });
+      const result = await runInteractiveAuth({
+        config: {
+          models: {
+            providers: {
+              LiteLLM: alias,
+              ...(withCanonical ? { litellm: canonical } : {}),
+            },
+          },
+        },
+        prompter,
+      });
+
+      expect(prompter.text).toHaveBeenCalledWith(expect.objectContaining({ initialValue }));
+      expect(result?.configPatch?.models?.providers).toStrictEqual({
+        litellm: expectedProvider,
+      });
+    },
+  );
 
   it.each([
     { answer: "not-a-url", expected: "Enter a full URL, such as http://localhost:4000" },
