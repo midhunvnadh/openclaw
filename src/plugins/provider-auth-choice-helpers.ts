@@ -149,7 +149,7 @@ export function normalizeProviderAuthRows<T>(value: T, sourceConfig?: unknown): 
       : undefined;
   const rows = Object.entries(value.models.providers)
     .map(([key, row]) => ({ key, row, provider: normalizeProviderId(key) }))
-    .sort(
+    .toSorted(
       (left, right) => Number(left.key === left.provider) - Number(right.key === right.provider),
     );
   const providers = new Map<string, unknown>(
