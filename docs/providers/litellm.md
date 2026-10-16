@@ -93,13 +93,22 @@ spend limits, and backend failover without changing OpenClaw config.
 }
 ```
 
-The default model onboarding writes is `litellm/claude-opus-4-6`.
+The default model onboarding writes is `litellm/claude-opus-4-6`. Onboarding does not yet select
+from the proxy's live model list. If your proxy does not serve that alias, select one it advertises:
+
+```bash
+openclaw models list --provider litellm --refresh --json
+openclaw models set litellm/your-model-id
+```
 
 In merge mode, onboarding with an explicit proxy URL preserves any authored provider models and
 otherwise leaves the provider model list empty for discovery. Run
 `openclaw models list --provider litellm --refresh --json` to list the proxy's models.
 With `models.mode: "replace"`, discovery is disabled, so onboarding keeps the documented default
 in the provider model list while preserving existing model definitions.
+
+Re-running authentication also combines case-variant provider keys, such as `LiteLLM` and `litellm`,
+into one canonical row while preserving authored provider options and model settings.
 
 ## Image generation
 

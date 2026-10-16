@@ -17,15 +17,12 @@ import { buildLitellmProvider } from "./provider-catalog.js";
 
 const PROVIDER_ID = "litellm";
 
-/** Records the proxy URL the operator pointed setup at. An empty value leaves config untouched. */
 function applyLitellmBaseUrl(cfg: OpenClawConfig, baseUrl: unknown): OpenClawConfig {
   const normalized = normalizeOptionalSecretInput(baseUrl)?.replace(/\/+$/, "");
   if (!normalized) {
     return cfg;
   }
-  // Resolve the row the way the shared preset resolves it. Reading the exact lowercase
-  // key would miss a case-variant row, and the fresh row written here takes precedence
-  // over it, dropping the operator's authored models and options.
+  // Preserve authored settings even when the provider key uses different casing.
   const existingProvider = findNormalizedProviderValue(cfg.models?.providers, PROVIDER_ID);
   return {
     ...cfg,
@@ -57,10 +54,6 @@ function validateProxyBaseUrl(value: string): string | undefined {
     : "The LiteLLM proxy URL must start with http:// or https://";
 }
 
-/**
- * Interactive setup has no CLI flag to carry the proxy URL, so ask for it and let
- * `applyLitellmConfig` keep owning the resulting provider row.
- */
 async function promptLitellmBaseUrl(ctx: ProviderAuthContext): Promise<string | undefined> {
   const configured =
     findNormalizedProviderValue(ctx.config.models?.providers, PROVIDER_ID)?.baseUrl?.trim() ?? "";
@@ -73,10 +66,7 @@ async function promptLitellmBaseUrl(ctx: ProviderAuthContext): Promise<string | 
     validate: validateProxyBaseUrl,
   });
   const chosen = answer.trim().replace(/\/+$/, "");
-  // Accepting the prefilled default must not read as an explicit URL, because
-  // `applyLitellmConfig` seeds a usable default model only when no base URL is recorded.
-  // An existing URL still has to be replaceable, so an explicit switch back to the
-  // default proxy has to land rather than leave the old proxy in place.
+  // Keep fresh default-model seeding, but honor switching an existing remote URL back.
   return chosen === LITELLM_BASE_URL && !configured ? undefined : chosen;
 }
 

@@ -11,6 +11,7 @@ import {
   type WizardPrompter,
 } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { clearLiveCatalogCacheForTests } from "openclaw/plugin-sdk/provider-catalog-live-runtime";
+import type { ModelDefinitionConfig } from "openclaw/plugin-sdk/provider-onboard";
 import { WizardCancelledError } from "openclaw/plugin-sdk/setup";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRuntimeSpies } from "../test-support/runtime-spies.js";
@@ -222,7 +223,7 @@ describe("litellm plugin", () => {
   });
 
   it("preserves authored models and options from a case-variant provider row", async () => {
-    const authored = [
+    const authored: ModelDefinitionConfig[] = [
       {
         id: "custom-model",
         name: "Custom",
@@ -247,7 +248,7 @@ describe("litellm plugin", () => {
             },
           },
         },
-      } as unknown as OpenClawConfig,
+      },
       prompter: createTestWizardPrompter({
         text: vi.fn(async () => "https://old.example/v1") as WizardPrompter["text"],
       }),

@@ -54,8 +54,37 @@ export function pickAuthMethod(
   );
 }
 
-function mergeConfigPatch<T>(base: T, patch: unknown, merge = true): T {
+function isProviderModelRow(value: unknown): value is Record<string, unknown> & { id: string } {
+  return isPlainRecord(value) && typeof value.id === "string" && value.id.length > 0;
+}
+
+function mergeConfigPatch<T>(
+  base: T,
+  patch: unknown,
+  merge = true,
+  options?: { preserveUndefined?: boolean; mergeModelsById?: boolean },
+): T {
   if (Array.isArray(patch)) {
+    if (
+      options?.mergeModelsById &&
+      Array.isArray(base) &&
+      base.every(isProviderModelRow) &&
+      patch.every(isProviderModelRow)
+    ) {
+      const models = new Map(base.map((model) => [model.id, model]));
+      for (const model of patch) {
+        const previous = models.get(model.id);
+        models.set(
+          model.id,
+          previous
+            ? mergeConfigPatch(previous, model, true, {
+                preserveUndefined: options.preserveUndefined,
+              })
+            : model,
+        );
+      }
+      return [...models.values()] as T;
+    }
     // Replacements are sanitized copies; undefined deletes only during object merging.
     return patch.map((entry) => mergeConfigPatch(undefined, entry, false)) as T;
   }
@@ -68,13 +97,53 @@ function mergeConfigPatch<T>(base: T, patch: unknown, merge = true): T {
     if (isBlockedObjectKey(key)) {
       continue;
     }
-    if (merge && value === undefined) {
+    if (merge && value === undefined && !options?.preserveUndefined) {
       delete next[key];
       continue;
     }
-    next[key] = mergeConfigPatch(next[key], value, merge);
+    next[key] = mergeConfigPatch(
+      next[key],
+      value,
+      merge,
+      options && { ...options, mergeModelsById: options.mergeModelsById && key === "models" },
+    );
   }
   return next as T;
+}
+
+/** Fold auth provider row keys without applying defaults or consuming patch deletions. */
+export function normalizeProviderAuthRows<T>(value: T): T {
+  if (
+    !isPlainRecord(value) ||
+    !isPlainRecord(value.models) ||
+    !isPlainRecord(value.models.providers)
+  ) {
+    return value;
+  }
+  const rows = Object.entries(value.models.providers)
+    .map(([key, row]) => ({ key, row, provider: normalizeProviderId(key) }))
+    .sort(
+      (left, right) => Number(left.key === left.provider) - Number(right.key === right.provider),
+    );
+  const providers = new Map<string, unknown>();
+  let changed = false;
+  for (const { key, row, provider } of rows) {
+    const duplicate = providers.has(provider);
+    changed ||= key !== provider || duplicate;
+    // Exact canonical rows win; model options from aliases survive by model id.
+    providers.set(
+      provider,
+      duplicate
+        ? mergeConfigPatch(providers.get(provider), row, true, {
+            preserveUndefined: true,
+            mergeModelsById: true,
+          })
+        : row,
+    );
+  }
+  return changed
+    ? ({ ...value, models: { ...value.models, providers: Object.fromEntries(providers) } } as T)
+    : value;
 }
 
 function normalizeAgentModelConfigForWrite(value: unknown): unknown {
@@ -108,14 +177,6 @@ function normalizeAgentModelPolicyForWrite(value: unknown): unknown {
   };
 }
 
-function normalizeProviderCatalogModelIdForWrite(provider: string, modelId: string): string {
-  const trimmed = modelId.trim();
-  if (!trimmed) {
-    return trimmed;
-  }
-  return normalizeConfiguredProviderCatalogModelId(normalizeProviderId(provider), trimmed);
-}
-
 function normalizeArray<T>(values: T[], normalize: (value: T) => T): T[] {
   let changed = false;
   const next = values.map((value) => {
@@ -136,7 +197,8 @@ function normalizeProviderCatalogModelIdsForWrite(
   }
 
   const nextModels = normalizeArray(models, (model) => {
-    const nextId = normalizeProviderCatalogModelIdForWrite(provider, model.id);
+    const trimmed = model.id.trim();
+    const nextId = trimmed ? normalizeConfiguredProviderCatalogModelId(provider, trimmed) : trimmed;
     return nextId === model.id ? model : Object.assign({}, model, { id: nextId });
   });
 
@@ -245,7 +307,7 @@ export function applyProviderAuthConfigPatch(
   const providerConfigNormalizer =
     options?.providerConfigNormalizer ?? normalizeProviderConfigForConfigDefaults;
   const merged = normalizeConfigModelRefsForWrite(
-    mergeConfigPatch(cfg, patch),
+    mergeConfigPatch(normalizeProviderAuthRows(cfg), normalizeProviderAuthRows(patch)),
     providerConfigNormalizer,
   );
   if (!options?.replaceDefaultModels || !isPlainRecord(patch)) {

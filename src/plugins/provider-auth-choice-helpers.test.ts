@@ -105,6 +105,71 @@ describe("applyProviderAuthConfigPatch", () => {
     expect(provider).not.toHaveProperty("headers");
   });
 
+  it("preserves canonical patch intent when reauth returns existing duplicate provider rows", () => {
+    const model: ModelProviderConfig["models"][number] = {
+      id: "local-model",
+      name: "Local model",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 8192,
+      maxTokens: 2048,
+    };
+    const canonical: ModelProviderConfig = {
+      baseUrl: "https://old.example/v1",
+      headers: { "x-old": "remove" },
+      models: [model],
+    };
+    const alias: ModelProviderConfig = {
+      baseUrl: "https://stale.example/v1",
+      request: { headers: { "x-route": "keep" } },
+      models: [
+        {
+          ...model,
+          params: { aliasValue: null, rows: [{ id: "same", stale: true }] },
+        },
+      ],
+    };
+    const baseLocal = { models: { providers: { litellm: canonical, LiteLLM: alias } } };
+    const selectedModel = {
+      ...model,
+      params: { selectedValue: null, rows: [{ id: "same", selected: true }] },
+    };
+    // API-key setup returns a whole config, retaining the old alias after the canonical row.
+    const patch = {
+      models: {
+        providers: {
+          ...baseLocal.models.providers,
+          litellm: {
+            ...canonical,
+            baseUrl: "https://selected.example/v1",
+            headers: undefined,
+            models: [selectedModel],
+          },
+        },
+      },
+    };
+
+    const next = applyProviderAuthConfigPatch(baseLocal, patch, { providerConfigNormalizer });
+
+    expect(next.models?.providers).toEqual({
+      litellm: {
+        baseUrl: "https://selected.example/v1",
+        request: alias.request,
+        models: [
+          {
+            ...model,
+            params: {
+              aliasValue: null,
+              selectedValue: null,
+              rows: [{ id: "same", selected: true }],
+            },
+          },
+        ],
+      },
+    });
+  });
+
   it("normalizes retired Google Gemini per-agent refs from provider config patches", () => {
     const patch = {
       agents: {
