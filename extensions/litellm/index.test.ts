@@ -251,7 +251,7 @@ describe("litellm plugin", () => {
         ...alias,
         baseUrl: "https://canonical.example/v1",
         apiKey: "canonical-key",
-        models: authored.map((model) => ({ ...model, params: { temperature: 0.3 } })),
+        models: authored.map((model) => Object.assign({}, model, { params: { temperature: 0.3 } })),
       };
       const selected = withCanonical ? canonical : alias;
       const initialValue = selected.baseUrl;
