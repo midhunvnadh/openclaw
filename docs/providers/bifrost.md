@@ -104,6 +104,62 @@ When Bifrost enforces authentication or you use [virtual keys](https://docs.getb
 for budgets and rate limits, supply the key during onboarding or set `BIFROST_VIRTUAL_KEY`. Use
 one virtual key per governance boundary so spend and limits stay attributable.
 
+### Which keys this provider supports
+
+This provider sends the virtual key as `Authorization: Bearer <key>`. Bifrost accepts a virtual
+key on that header **only** in one of two configurations, so check yours before you rely on it:
+
+| Your setup                                                           | Works                            |
+| -------------------------------------------------------------------- | -------------------------------- |
+| Keyless gateway                                                      | Yes — recorded as `auth: "none"` |
+| Key starts with `sk-bf-`, and Bifrost HTTP authentication is **off** | Yes                              |
+| Key does **not** start with `sk-bf-` (a legacy key)                  | **No**                           |
+| Bifrost HTTP authentication is **on** (`auth_config.is_enabled`)     | **No**                           |
+
+The two failing rows both come from the same upstream rule: Bifrost honors legacy keys _only_
+through its own `x-bf-vk` header, and when HTTP authentication is enabled it consumes
+`Authorization` for that purpose instead. Setup succeeds in both cases and the failure surfaces
+later as a `401` from the gateway, which is why it is worth checking now rather than debugging
+it during a session.
+
+### Sending the key through `x-bf-vk` instead
+
+If your gateway is in one of the two unsupported rows, declare the header Bifrost wants on the
+provider row:
+
+```json
+{
+  "models": {
+    "providers": {
+      "bifrost": {
+        "request": {
+          "auth": {
+            "mode": "header",
+            "headerName": "x-bf-vk",
+            "value": "${BIFROST_VIRTUAL_KEY}"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+This sends the key in **both** `x-bf-vk` and `Authorization`, so the gateway can accept either.
+Verified against a local listener: both headers arrive when the variable is set.
+
+:::warning
+`BIFROST_VIRTUAL_KEY` must be **set in the Gateway's environment**. The reference is not
+optional — if it is unset, OpenClaw sends the literal text `${BIFROST_VIRTUAL_KEY}` as the
+header value, and Bifrost rejects that with `401 access not found` while ignoring the valid
+`Authorization` header on the same request. Confirm the variable is exported before you turn the
+header on.
+:::
+
+If you cannot export the variable — for example the Gateway runs under a service manager with a
+fixed environment — configure the same field with a [secret placeholder](/reference/secret-placeholder-conventions)
+that resolves in that context instead.
+
 ## Discovering models
 
 ```bash
