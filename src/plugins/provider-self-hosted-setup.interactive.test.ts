@@ -129,11 +129,12 @@ describe("promptAndConfigureOpenAICompatibleSelfHostedProviderAuth", () => {
     });
 
     expect(result.profiles).toEqual([]);
-    expect(result.configPatch.models.providers.fixture).toMatchObject({
+    const fixtureProvider = result.configPatch?.models?.providers?.fixture;
+    expect(fixtureProvider).toMatchObject({
       baseUrl: "https://fixture.example.invalid/v1",
       api: "openai-completions",
       auth: "none",
     });
-    expect(result.configPatch.models.providers.fixture).not.toHaveProperty("apiKey");
+    expect(fixtureProvider).not.toHaveProperty("apiKey");
   });
 });
