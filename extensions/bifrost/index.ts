@@ -46,7 +46,11 @@ function applyBifrostConnection(
         [PROVIDER_ID]: {
           ...existing,
           baseUrl,
-          ...(opts.anonymous ? { auth: "none" as const, apiKey: undefined } : {}),
+          // Auth intent is written in both directions. resolveExplicitProviderNoAuth
+          // treats auth:"none" as terminal and strips Authorization, so re-running setup
+          // against a gateway that now has a key must clear the marker rather than
+          // inherit it through the merge above.
+          ...(opts.anonymous ? { auth: "none" as const, apiKey: undefined } : { auth: undefined }),
           models: existing?.models ?? [],
         },
       },
@@ -248,23 +252,20 @@ export default definePluginEntry({
               return null;
             }
             const configuredBaseUrl = normalizeOptionalSecretInput(ctx.opts.customBaseUrl);
-            // Only declare anonymity when no key is supplied now or already configured;
-            // re-running setup for a URL change must not drop an existing credential.
-            const hasKey =
-              Boolean(normalizeOptionalSecretInput(ctx.opts.bifrostApiKey)) ||
-              Boolean(
-                normalizeOptionalSecretInput(
-                  resolveMergedModelProviderConfig(ctx.config, PROVIDER_ID)?.apiKey,
-                ),
-              );
-            return await runNonInteractive({
-              ...ctx,
-              config: configuredBaseUrl
-                ? applyBifrostConnection(ctx.config, configuredBaseUrl.replace(/\/+$/, ""), {
-                    anonymous: !hasKey,
-                  })
-                : ctx.config,
-            });
+            if (!configuredBaseUrl) {
+              return await runNonInteractive(ctx);
+            }
+            // The delegated method is the sole authority on whether a credential exists:
+            // it reads the flag, BIFROST_VIRTUAL_KEY, and existing profiles, and returns
+            // null when none resolve. Re-deriving that from flag and inline presence here
+            // would mark a gateway anonymous while a usable key was in scope, and the key
+            // that path then saves would be stripped again at inference.
+            const config = applyBifrostConnection(
+              ctx.config,
+              configuredBaseUrl.replace(/\/+$/, ""),
+              { anonymous: false },
+            );
+            return await runNonInteractive({ ...ctx, config });
           },
         },
       ],

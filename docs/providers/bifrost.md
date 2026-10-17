@@ -111,6 +111,14 @@ openclaw models list --provider bifrost --refresh --json
 openclaw models set bifrost/openai/gpt-4o-mini
 ```
 
-In merge mode, onboarding leaves the provider model list empty for discovery. With
-`models.mode: "replace"`, discovery is disabled and onboarding keeps the documented default model
-in the list.
+Interactive onboarding always writes the model you select into the provider's list, whether
+you picked one from the advertised models or typed an ID by hand. Any models already on the
+provider row are kept, and the selected model is added when it is not already present.
+
+Non-interactive onboarding leaves the list empty when a gateway URL is configured, so the
+gateway's own discovery supplies the catalog. With no URL configured, or with
+`models.mode: "replace"` — which disables discovery — it writes the documented default model
+instead.
+
+`openclaw models list --refresh` does not import the gateway's remaining advertised models
+into the list; see [#121584](https://github.com/openclaw/openclaw/issues/121584).

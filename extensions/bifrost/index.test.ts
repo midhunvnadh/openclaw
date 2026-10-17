@@ -10,10 +10,17 @@ import plugin from "./index.js";
 import { BIFROST_BASE_URL, BIFROST_DEFAULT_MODEL_ID } from "./onboard.js";
 
 const discoveryMock = vi.hoisted(() => vi.fn());
+const catalogMock = vi.hoisted(() => vi.fn());
 
 vi.mock("openclaw/plugin-sdk/provider-setup", async (importOriginal) => {
   const actual = await importOriginal<typeof import("openclaw/plugin-sdk/provider-setup")>();
   return { ...actual, discoverOpenAICompatibleLocalModels: discoveryMock };
+});
+
+vi.mock("openclaw/plugin-sdk/provider-catalog-live-runtime", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("openclaw/plugin-sdk/provider-catalog-live-runtime")>();
+  return { ...actual, buildOpenAICompatibleProviderCatalog: catalogMock };
 });
 
 const DISCOVERED_ROWS = [
@@ -90,6 +97,7 @@ async function runInteractiveAuth(
 describe("bifrost plugin", () => {
   beforeEach(() => {
     resetDiscovery();
+    catalogMock.mockReset();
   });
 
   it("records the gateway URL the operator enters", async () => {
@@ -176,6 +184,25 @@ describe("bifrost plugin", () => {
     expect(result?.profiles?.[0]?.profileId).toBe("bifrost:default");
   });
 
+  it("clears a previous anonymous marker once the operator supplies a virtual key", async () => {
+    const result = await runInteractiveAuth({
+      config: {
+        models: {
+          providers: {
+            bifrost: { baseUrl: "https://old.example/openai", auth: "none", models: [] },
+          },
+        },
+      },
+      prompter: createPrompter({ needsVirtualKey: true, virtualKey: "bf-vk-test" }),
+    });
+    const provider = result?.configPatch?.models?.providers?.bifrost;
+
+    // resolveExplicitProviderNoAuth is terminal on auth:"none" and strips the
+    // Authorization header, so an inherited marker would discard the saved key.
+    expect(provider?.auth).not.toBe("none");
+    expect(result?.profiles?.[0]?.profileId).toBe("bifrost:default");
+  });
+
   it("discovers models from the configured gateway and selects the first", async () => {
     const result = await runInteractiveAuth({
       prompter: createPrompter({
@@ -226,6 +253,26 @@ describe("bifrost plugin", () => {
       apiKey: "existing-vk",
     });
     expect(result?.models?.providers?.bifrost?.auth).toBeUndefined();
+  });
+
+  it("stays credentialed when the key resolves from a profile rather than a flag", async () => {
+    const config = {
+      models: { providers: { bifrost: { baseUrl: "https://old.example/openai", models: [] } } },
+    } satisfies OpenClawConfig;
+    const result = await registerProvider()?.auth?.[0]?.runNonInteractive?.({
+      authChoice: "bifrost-api-key",
+      config,
+      baseConfig: config,
+      opts: { customBaseUrl: "https://new.example/openai" },
+      runtime: createRuntimeSpies(),
+      // No --bifrost-api-key and no inline apiKey, so inferring anonymity from those two
+      // alone would mark this gateway auth:"none" and discard the resolved key.
+      resolveApiKey: async () => ({ key: "profile-vk", source: "profile" as const }),
+      toApiKeyCredential: () => null,
+    });
+
+    expect(result?.models?.providers?.bifrost?.auth).not.toBe("none");
+    expect(result?.models?.providers?.bifrost?.baseUrl).toBe("https://new.example/openai");
   });
 
   it("keeps the provider row canonical when the config used different casing", async () => {
@@ -279,6 +326,7 @@ describe("bifrost plugin", () => {
 describe("bifrost provider registration", () => {
   beforeEach(() => {
     resetDiscovery();
+    catalogMock.mockReset();
   });
 
   it("registers the plugin as a bundled models provider", () => {
@@ -289,10 +337,28 @@ describe("bifrost provider registration", () => {
     expect(provider?.staticCatalog?.order).toBe("simple");
   });
 
-  it("exposes a runnable discovery catalog", () => {
+  it.each([
+    { baseUrl: "http://127.0.0.1:8080/openai", endpointPath: "v1/models" },
+    { baseUrl: "http://127.0.0.1:8080/openai/v1", endpointPath: "models" },
+  ])("joins the version segment once for $baseUrl", async ({ baseUrl, endpointPath }) => {
+    const catalog = { provider: { id: "bifrost" } };
+    catalogMock.mockReturnValue(catalog);
     const provider = registerProvider();
 
-    expect(provider?.catalog?.order).toBe("simple");
-    expect(typeof provider?.catalog?.run).toBe("function");
+    const result = await provider?.catalog?.run?.({
+      config: { models: { providers: { bifrost: { baseUrl, models: [] } } } },
+      env: {},
+      resolveProviderApiKey: () => ({ apiKey: undefined }),
+      resolveProviderAuth: () => ({ apiKey: undefined, mode: "none", source: "none" }),
+    });
+
+    expect(catalogMock).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        providerId: "bifrost",
+        allowExplicitBaseUrl: true,
+        modelDiscovery: { endpointPath },
+      }),
+    );
+    expect(result).toBe(catalog);
   });
 });
