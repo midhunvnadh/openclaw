@@ -91,18 +91,49 @@ describe("promptAndConfigureOpenAICompatibleSelfHostedProviderAuth", () => {
       [
         {
           message: "Fixture API key",
-          placeholder: "sk-... (or any non-empty string)",
-          validate: expect.any(Function),
+          placeholder: "Optional unless the server requires auth",
           sensitive: true,
         },
       ],
       [{ message: "Fixture model", placeholder: "org/example", validate: expect.any(Function) }],
     ]);
     for (const [prompt] of vi.mocked(prompter.text).mock.calls) {
+      // The key prompt is the one input a self-hosted server may legitimately skip.
+      if (prompt.message.includes("API key")) {
+        expect(prompt.validate).toBeUndefined();
+        continue;
+      }
       expect(prompt.validate?.(" ")).toBe("Required");
       expect(prompt.validate?.(" value ")).toBeUndefined();
     }
     expect(upsertAuthProfileWithLockOrThrow).not.toHaveBeenCalled();
     expect(fetchWithSsrFGuardMock).not.toHaveBeenCalled();
+  });
+
+  it("configures an anonymous provider when no API key is supplied", async () => {
+    const prompter = createWizardPrompter();
+    vi.mocked(prompter.text)
+      .mockResolvedValueOnce(" https://fixture.example.invalid/v1 ")
+      .mockResolvedValueOnce(" ")
+      .mockResolvedValueOnce(" org/demo-model ");
+    const cfg = { models: { mode: "replace" } } satisfies OpenClawConfig;
+
+    const result = await promptAndConfigureOpenAICompatibleSelfHostedProviderAuth({
+      cfg,
+      prompter,
+      providerId: "fixture",
+      providerLabel: "Fixture",
+      defaultBaseUrl: "http://127.0.0.1:8000/v1",
+      defaultApiKeyEnvVar: "FIXTURE_API_KEY",
+      modelPlaceholder: "org/example",
+    });
+
+    expect(result.profiles).toEqual([]);
+    expect(result.configPatch.models.providers.fixture).toMatchObject({
+      baseUrl: "https://fixture.example.invalid/v1",
+      api: "openai-completions",
+      auth: "none",
+    });
+    expect(result.configPatch.models.providers.fixture).not.toHaveProperty("apiKey");
   });
 });

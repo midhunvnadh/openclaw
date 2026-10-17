@@ -1,0 +1,44 @@
+{
+  "id": "bifrost",
+  "categories": ["models"],
+  "activation": {
+    "onStartup": false
+  },
+  "enabledByDefault": true,
+  "providers": ["bifrost"],
+  "modelCatalog": {
+    "discovery": {
+      "bifrost": "runtime"
+    }
+  },
+  "setup": {
+    "providers": [
+      {
+        "id": "bifrost",
+        "envVars": ["BIFROST_VIRTUAL_KEY"]
+      }
+    ]
+  },
+  "providerAuthChoices": [
+    {
+      "provider": "bifrost",
+      "method": "api-key",
+      "choiceId": "bifrost-api-key",
+      "appGuidedSecret": true,
+      "choiceLabel": "Bifrost virtual key",
+      "choiceHint": "Unified gateway for 20+ LLM providers",
+      "groupId": "bifrost",
+      "groupLabel": "Bifrost",
+      "groupHint": "Unified LLM gateway (20+ providers)",
+      "optionKey": "bifrostApiKey",
+      "cliFlag": "--bifrost-api-key",
+      "cliOption": "--bifrost-api-key <key>",
+      "cliDescription": "Bifrost virtual key"
+    }
+  ],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

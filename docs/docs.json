@@ -2289,6 +2289,7 @@
                   {
                     "group": "Gateways and routers",
                     "pages": [
+                      "providers/bifrost",
                       "providers/claude-max-api-proxy",
                       "providers/clawrouter",
                       "providers/cloudflare-ai-gateway",

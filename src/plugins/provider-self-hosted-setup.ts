@@ -57,7 +57,8 @@ function buildOpenAICompatibleSelfHostedProviderConfig(
     cfg: OpenClawConfig;
     providerId: string;
     baseUrl: string;
-    providerApiKey: string;
+    /** Env var naming the key. Omitted for a gateway that serves anonymous requests. */
+    providerApiKey?: string;
     modelId: string;
   },
 ): { config: OpenClawConfig; modelRef: string; profileId: string } {
@@ -74,7 +75,11 @@ function buildOpenAICompatibleSelfHostedProviderConfig(
           [params.providerId]: {
             baseUrl: params.baseUrl,
             api: "openai-completions",
-            apiKey: params.providerApiKey,
+            // A gateway that accepted no key is anonymous by declaration, not by a
+            // missing apiKey the resolver would keep trying to satisfy.
+            ...(params.providerApiKey
+              ? { apiKey: params.providerApiKey }
+              : { auth: "none" as const }),
             models: [
               {
                 id: params.modelId,
@@ -116,8 +121,7 @@ export async function promptAndConfigureOpenAICompatibleSelfHostedProviderAuth(
   });
   const apiKeyRaw = await params.prompter.text({
     message: `${params.providerLabel} API key`,
-    placeholder: "sk-... (or any non-empty string)",
-    validate: (value) => (value?.trim() ? undefined : "Required"),
+    placeholder: "Optional unless the server requires auth",
     sensitive: true,
   });
   const modelIdRaw = await params.prompter.text({
@@ -129,20 +133,28 @@ export async function promptAndConfigureOpenAICompatibleSelfHostedProviderAuth(
   const baseUrl = (baseUrlRaw ?? "").trim().replace(/\/+$/, "");
   const apiKey = normalizeStringifiedOptionalString(apiKeyRaw) ?? "";
   const modelId = normalizeStringifiedOptionalString(modelIdRaw) ?? "";
-  const credential: AuthProfileCredential = {
-    type: "api_key",
-    provider: params.providerId,
-    key: apiKey,
-  };
   const configured = buildOpenAICompatibleSelfHostedProviderConfig({
     ...params,
     baseUrl,
-    providerApiKey: params.defaultApiKeyEnvVar,
+    ...(apiKey ? { providerApiKey: params.defaultApiKeyEnvVar } : {}),
     modelId,
   });
 
   return {
-    profiles: [{ profileId: configured.profileId, credential }],
+    // Self-hosted servers commonly accept anonymous requests; a skipped key must
+    // not leave behind a credential profile that resolves to nothing.
+    profiles: apiKey
+      ? [
+          {
+            profileId: configured.profileId,
+            credential: {
+              type: "api_key",
+              provider: params.providerId,
+              key: apiKey,
+            } satisfies AuthProfileCredential,
+          },
+        ]
+      : [],
     configPatch: configured.config,
     defaultModel: configured.modelRef,
   };
