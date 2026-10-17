@@ -252,7 +252,12 @@ export default definePluginEntry({
               return null;
             }
             const configuredBaseUrl = normalizeOptionalSecretInput(ctx.opts.customBaseUrl);
-            if (!configuredBaseUrl) {
+            const existingBaseUrl = resolveMergedModelProviderConfig(
+              ctx.config,
+              PROVIDER_ID,
+            )?.baseUrl?.trim();
+            const baseUrl = configuredBaseUrl?.replace(/\/+$/, "") ?? existingBaseUrl;
+            if (!baseUrl) {
               return await runNonInteractive(ctx);
             }
             // The delegated method is the sole authority on whether a credential exists:
@@ -260,11 +265,12 @@ export default definePluginEntry({
             // null when none resolve. Re-deriving that from flag and inline presence here
             // would mark a gateway anonymous while a usable key was in scope, and the key
             // that path then saves would be stripped again at inference.
-            const config = applyBifrostConnection(
-              ctx.config,
-              configuredBaseUrl.replace(/\/+$/, ""),
-              { anonymous: false },
-            );
+            //
+            // A gateway already on file counts as configured even without --custom-base-url,
+            // because this branch always applies a credential: skipping the connection
+            // update there would let an earlier anonymous auth:"none" survive the delegate's
+            // preset, and resolveExplicitProviderNoAuth would strip the key just saved.
+            const config = applyBifrostConnection(ctx.config, baseUrl, { anonymous: false });
             return await runNonInteractive({ ...ctx, config });
           },
         },

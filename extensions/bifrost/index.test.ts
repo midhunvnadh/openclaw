@@ -275,6 +275,30 @@ describe("bifrost plugin", () => {
     expect(result?.models?.providers?.bifrost?.baseUrl).toBe("https://new.example/openai");
   });
 
+  it("clears a stale anonymous marker when the URL flag is omitted", async () => {
+    const config = {
+      models: {
+        providers: {
+          bifrost: { baseUrl: "https://old.example/openai", auth: "none", models: [] },
+        },
+      },
+    } satisfies OpenClawConfig;
+    const result = await registerProvider()?.auth?.[0]?.runNonInteractive?.({
+      authChoice: "bifrost-api-key",
+      config,
+      baseConfig: config,
+      // No --custom-base-url: the gateway is already on file, and this path still has to
+      // clear the anonymous marker or the delegate's preset preserves it.
+      opts: {},
+      runtime: createRuntimeSpies(),
+      resolveApiKey: async () => ({ key: "flag-vk", source: "profile" as const }),
+      toApiKeyCredential: () => null,
+    });
+
+    expect(result?.models?.providers?.bifrost?.auth).not.toBe("none");
+    expect(result?.models?.providers?.bifrost?.baseUrl).toBe("https://old.example/openai");
+  });
+
   it("keeps the provider row canonical when the config used different casing", async () => {
     const result = await runInteractiveAuth({
       config: {
