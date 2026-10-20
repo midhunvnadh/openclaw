@@ -1,10 +1,36 @@
-import type { ModelProviderConfig } from "openclaw/plugin-sdk/provider-model-shared";
-import { buildBifrostModelDefinition, BIFROST_BASE_URL } from "./onboard.js";
+import { resolveMergedModelProviderConfig } from "openclaw/plugin-sdk/provider-catalog-shared";
+import type { ProviderPlugin } from "openclaw/plugin-sdk/provider-model-shared";
 
-export function buildBifrostProvider(): ModelProviderConfig {
-  return {
-    baseUrl: BIFROST_BASE_URL,
-    api: "openai-completions",
-    models: [buildBifrostModelDefinition()],
-  };
-}
+export default {
+  id: "bifrost",
+  label: "Bifrost",
+  docsPath: "/providers/bifrost",
+  envVars: ["BIFROST_VIRTUAL_KEY"],
+  auth: [],
+  catalog: {
+    order: "simple",
+    run: async (ctx) => {
+      const configured = resolveMergedModelProviderConfig(ctx.config, "bifrost");
+      if (!configured) {
+        return null;
+      }
+      const auth = ctx.resolveProviderApiKey("bifrost");
+      const [{ listBifrostModels }, { runLiveProviderCatalog }] = await Promise.all([
+        import("./models.js"),
+        import("openclaw/plugin-sdk/provider-catalog-live-runtime"),
+      ]);
+      const result = await runLiveProviderCatalog({
+        providerId: "bifrost",
+        profileId: auth.profileId,
+        run: async () => ({
+          provider: {
+            ...(await listBifrostModels({ ...ctx, apiKey: auth.discoveryApiKey })),
+            apiKey: configured.apiKey ?? auth.apiKey,
+          },
+        }),
+      });
+      ctx.signal?.throwIfAborted();
+      return result;
+    },
+  },
+} satisfies ProviderPlugin;

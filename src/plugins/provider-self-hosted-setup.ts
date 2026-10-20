@@ -9,6 +9,7 @@ import {
   SELF_HOSTED_DEFAULT_COST,
   SELF_HOSTED_DEFAULT_MAX_TOKENS,
 } from "../agents/self-hosted-provider-defaults.js";
+import { resolveMergedModelProviderConfig } from "../config/model-provider-config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { normalizeOptionalSecretInput } from "../utils/normalize-secret-input.js";
 import type { WizardPrompter } from "../wizard/prompts.js";
@@ -57,8 +58,7 @@ function buildOpenAICompatibleSelfHostedProviderConfig(
     cfg: OpenClawConfig;
     providerId: string;
     baseUrl: string;
-    /** Env var naming the key. Omitted for a gateway that serves anonymous requests. */
-    providerApiKey?: string;
+    providerApiKey: string;
     modelId: string;
   },
 ): { config: OpenClawConfig; modelRef: string; profileId: string } {
@@ -75,11 +75,7 @@ function buildOpenAICompatibleSelfHostedProviderConfig(
           [params.providerId]: {
             baseUrl: params.baseUrl,
             api: "openai-completions",
-            // A gateway that accepted no key is anonymous by declaration, not by a
-            // missing apiKey the resolver would keep trying to satisfy.
-            ...(params.providerApiKey
-              ? { apiKey: params.providerApiKey }
-              : { auth: "none" as const }),
+            apiKey: params.providerApiKey,
             models: [
               {
                 id: params.modelId,
@@ -113,15 +109,19 @@ type OpenAICompatibleSelfHostedProviderSetupParams = OpenAICompatibleSelfHostedP
 export async function promptAndConfigureOpenAICompatibleSelfHostedProviderAuth(
   params: OpenAICompatibleSelfHostedProviderSetupParams,
 ): Promise<ProviderAuthResult> {
+  const configuredBaseUrl =
+    resolveMergedModelProviderConfig(params.cfg, params.providerId)?.baseUrl?.trim() ?? "";
   const baseUrlRaw = await params.prompter.text({
     message: `${params.providerLabel} base URL`,
-    initialValue: params.defaultBaseUrl,
+    // Prefilling the default makes typed input append to it. Hint it instead, and
+    // prefill only a stored URL the operator may want to edit.
+    initialValue: configuredBaseUrl || undefined,
     placeholder: params.defaultBaseUrl,
-    validate: (value) => (value?.trim() ? undefined : "Required"),
   });
   const apiKeyRaw = await params.prompter.text({
     message: `${params.providerLabel} API key`,
-    placeholder: "Optional unless the server requires auth",
+    placeholder: "sk-... (or any non-empty string)",
+    validate: (value) => (value?.trim() ? undefined : "Required"),
     sensitive: true,
   });
   const modelIdRaw = await params.prompter.text({
@@ -130,31 +130,26 @@ export async function promptAndConfigureOpenAICompatibleSelfHostedProviderAuth(
     validate: (value) => (value?.trim() ? undefined : "Required"),
   });
 
-  const baseUrl = (baseUrlRaw ?? "").trim().replace(/\/+$/, "");
+  const baseUrl = (baseUrlRaw?.trim() || configuredBaseUrl || params.defaultBaseUrl).replace(
+    /\/+$/,
+    "",
+  );
   const apiKey = normalizeStringifiedOptionalString(apiKeyRaw) ?? "";
   const modelId = normalizeStringifiedOptionalString(modelIdRaw) ?? "";
+  const credential: AuthProfileCredential = {
+    type: "api_key",
+    provider: params.providerId,
+    key: apiKey,
+  };
   const configured = buildOpenAICompatibleSelfHostedProviderConfig({
     ...params,
     baseUrl,
-    ...(apiKey ? { providerApiKey: params.defaultApiKeyEnvVar } : {}),
+    providerApiKey: params.defaultApiKeyEnvVar,
     modelId,
   });
 
   return {
-    // Self-hosted servers commonly accept anonymous requests; a skipped key must
-    // not leave behind a credential profile that resolves to nothing.
-    profiles: apiKey
-      ? [
-          {
-            profileId: configured.profileId,
-            credential: {
-              type: "api_key",
-              provider: params.providerId,
-              key: apiKey,
-            } satisfies AuthProfileCredential,
-          },
-        ]
-      : [],
+    profiles: [{ profileId: configured.profileId, credential }],
     configPatch: configured.config,
     defaultModel: configured.modelRef,
   };

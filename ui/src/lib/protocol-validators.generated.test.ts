@@ -7,7 +7,12 @@ import {
   SessionApprovalEventSchema,
   SessionApprovalReplaySchema,
 } from "../../../packages/gateway-protocol/src/schema/approvals.js";
-import { AgentActivityItemSchema } from "../../../packages/gateway-protocol/src/schema/logs-chat.js";
+import { BoardSnapshotSchema } from "../../../packages/gateway-protocol/src/schema/board.js";
+import {
+  AgentActivityItemSchema,
+  ChatHistoryParamsSchema,
+  ChatPendingInputsPageSchema,
+} from "../../../packages/gateway-protocol/src/schema/logs-chat.js";
 import { ProgressCardSchema } from "../../../packages/gateway-protocol/src/schema/progress-card.js";
 import { SessionParticipantIdentitySchema } from "../../../packages/gateway-protocol/src/schema/session-participant.js";
 import { SessionsCreateParamsSchema } from "../../../packages/gateway-protocol/src/schema/sessions-create.js";
@@ -30,10 +35,19 @@ import { readTranscriptDisplayPosition } from "../../../src/chat/transcript-disp
 import { CHAT_TRANSCRIPT_METADATA_KEYS } from "../pages/chat/chat-transcript-metadata.ts";
 import * as activityChecks from "./protocol-validators.generated/activity.js";
 import * as approvalChecks from "./protocol-validators.generated/approvals.js";
+import * as boardChecks from "./protocol-validators.generated/board.js";
+import * as historyStateChecks from "./protocol-validators.generated/history-state.js";
 import * as sessionInputChecks from "./protocol-validators.generated/session-input.js";
 import * as transcriptChecks from "./protocol-validators.generated/transcript.js";
 
-const checks = { ...activityChecks, ...approvalChecks, ...sessionInputChecks, ...transcriptChecks };
+const checks = {
+  ...activityChecks,
+  ...approvalChecks,
+  ...boardChecks,
+  ...sessionInputChecks,
+  ...transcriptChecks,
+  ...historyStateChecks,
+};
 
 const activity = { itemId: "tool-1", phase: "start", kind: "tool", title: "Read file" };
 const approval = {
@@ -66,6 +80,29 @@ const fixtures: Array<{
   valid: unknown;
   invalid: unknown;
 }> = [
+  {
+    name: "board snapshot",
+    schema: BoardSnapshotSchema,
+    check: checks.isBoardSnapshot,
+    valid: {
+      sessionKey: "agent:main:dashboard",
+      revision: 1,
+      tabs: [{ tabId: "overview", title: "Overview", position: 0, chatDock: "right" }],
+      widgets: [
+        {
+          name: "chart",
+          tabId: "overview",
+          contentKind: "html",
+          sizeW: 12,
+          sizeH: 8,
+          position: 0,
+          grantState: "none",
+          revision: 1,
+        },
+      ],
+    },
+    invalid: { sessionKey: "agent:main:dashboard", revision: 1, tabs: [], widgets: [{}] },
+  },
   {
     name: "sender identity",
     schema: SessionParticipantIdentitySchema,
@@ -264,6 +301,27 @@ const fixtures: Array<{
     check: checks.isSessionToolOverrides,
     valid: { mcpToolsDeny: { server: ["tool"] } },
     invalid: { mcpToolsDeny: { server: [123] } },
+  },
+  {
+    name: "cached history metadata",
+    schema: Type.Object(
+      {
+        stateRevision: Type.Required(ChatHistoryParamsSchema).properties.knownState,
+        pendingInputs: Type.Optional(ChatPendingInputsPageSchema),
+        sessionInfo: Type.Optional(SessionRowSchema),
+      },
+      { additionalProperties: false },
+    ),
+    check: checks.isChatHistoryState,
+    valid: {
+      stateRevision: { pendingInputs: "inputs-1", sessionInfo: "session-1" },
+      pendingInputs: { items: [], total: 0 },
+      sessionInfo: { key: "s", kind: "direct", sessionId: "session-1" },
+    },
+    invalid: {
+      stateRevision: { sessionInfo: "session-1" },
+      sessionInfo: { key: "s", kind: "direct", owner: { actor: { type: "unknown" } } },
+    },
   },
   {
     name: "transcript metadata",

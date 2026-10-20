@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
-import { flush } from "solid-js";
+import { createComponent, flush, merge } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GatewaySessionRow } from "../../api/types.ts";
 import { loadSettings } from "../../app/settings.ts";
@@ -9,12 +9,15 @@ import { t } from "../../i18n/index.ts";
 import { sessionsResult } from "../../lib/sessions/session-capability.test-support.ts";
 import { showToast } from "../../lib/toast.ts";
 import { openChatLayoutMenu } from "../../test-helpers/chat-layout-menu.ts";
+import { gatewayHelloForMethods } from "../../test-helpers/gateway-methods.ts";
 import {
   answerConfirmDialog,
   createModalDialogTestFixture,
   waitForConfirmDialogActions,
 } from "../../test-helpers/modal-dialog.ts";
+import { mountSolid } from "../../test-helpers/mount-solid.ts";
 import { openSubmenu } from "../../test-helpers/session-menu.ts";
+import { projectChatFields } from "./chat-field-projection.ts";
 import { createMountedPanes, refreshPane } from "./chat-pane-mounted.test-support.ts";
 import {
   createGatewayBrowserClientFixture,
@@ -25,6 +28,7 @@ import {
 } from "./chat-pane.test-support.ts";
 import { selectedChatSessionRow } from "./chat-state-route.ts";
 import { renderPaneHeaderInto } from "./components/chat-pane-header.test-support.ts";
+import { PaneHeaderView } from "./components/chat-pane-header.tsx";
 import {
   installTranscriptDomMocks,
   resetTranscriptTestDom,
@@ -41,6 +45,66 @@ afterEach(() => {
 });
 
 describe("chat pane session menu boundary", () => {
+  it("updates the retained header through rename and loaded workspace branch changes", async () => {
+    const row: GatewaySessionRow = {
+      key: "agent:main:current",
+      sessionId: "current-session",
+      kind: "direct",
+      label: "Current conversation",
+      sharingRole: "owner",
+      spawnedCwd: "/workspace",
+    };
+    const { pane, state } = createTestChatPane({
+      client: createGatewayBrowserClientFixture({
+        request: async (method) =>
+          method === "worktrees.branches" ? { headBranch: "feature/header" } : {},
+      }),
+      sessions: createSessionCapabilityFixture({ state: { result: sessionsResult([row], 1) } }),
+    });
+    state.sessionsResult = sessionsResult([row], 1);
+    pane.context.gateway.snapshot.hello = gatewayHelloForMethods([
+      "sessions.patch",
+      "system.info",
+      "worktrees.branches",
+    ]);
+    const mounted = mountSolid(() => {
+      projectChatFields(pane.headerPresentation);
+      return createComponent(
+        PaneHeaderView,
+        merge(() =>
+          pane.renderPaneHeader(
+            createPaneHeaderWorkspaceFixture(state),
+            row,
+            false,
+            undefined,
+            false,
+            null,
+          ),
+        ),
+      );
+    });
+    flush();
+    const header = mounted.container;
+    pane.beginHeaderRename(row);
+    flush();
+    const input = header.querySelector<HTMLInputElement>(".chat-pane__session-title-input")!;
+    expect(input.value).toBe("Current conversation");
+    input.value = "Renamed conversation";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(pane.headerPresentation.renameValue).toBe("Renamed conversation");
+    pane.cancelHeaderRename();
+    flush();
+    expect(header.querySelector(".chat-pane__session-title-input")).toBeNull();
+    await pane.loadHeaderMenuData(row, "/workspace", true);
+    flush();
+    expect(pane.headerPresentation.branches.get("/workspace")?.value).toBe("feature/header");
+    header.querySelector<HTMLButtonElement>(".chat-pane__workspace-chip")!.click();
+    flush();
+    await vi.waitFor(() =>
+      expect(document.querySelector('[data-value="copy-branch"]')).not.toBeNull(),
+    );
+  });
+
   it("discovers nested sessions before the header archive choice", async () => {
     const modal = createModalDialogTestFixture();
     const row: GatewaySessionRow = {
@@ -318,23 +382,21 @@ describe("chat pane session menu boundary", () => {
 
     context.agentSelection.set("main");
     await sessions.refresh({ agentId: "main", force: true });
-    const redraw = vi.spyOn(verifier, "requestUpdate");
     emitGatewayEvent("sessions.changed", {
       sessionKey: retained.key,
       agentId: "research",
       reason: "label",
       session: { ...retained, label: "Reviewed conversation", updatedAt: 2 },
     });
-    expect(redraw).toHaveBeenCalled();
     expect.soft(title(verifier)).toBe("Reviewed conversation");
     container.querySelector<HTMLButtonElement>(".chat-pane__session-title-button")?.click();
-    expect(verifier.headerRenameValue).toBe("Reviewed conversation");
+    expect(verifier.headerPresentation.renameValue).toBe("Reviewed conversation");
     verifier.cancelHeaderRename();
     expect(title(ledger)).toBe("Ledger reconciliation");
 
     const patch = vi.spyOn(sessions, "patch");
     container.querySelector<HTMLButtonElement>(".chat-pane__session-title-button")?.click();
-    ledger.headerRenameValue = "Reviewed ledger";
+    ledger.headerPresentation.renameValue = "Reviewed ledger";
     ledger.commitHeaderRename();
     expect(patch).toHaveBeenCalledOnce();
     await patch.mock.results[0]?.value;
@@ -344,6 +406,39 @@ describe("chat pane session menu boundary", () => {
       "openclaw-chat-header-session-menu",
     );
     expect(menu?.session.label).toBe("Reviewed ledger");
+  });
+
+  it("keeps the current observed title while the roster projection is absent", async () => {
+    const row: GatewaySessionRow = {
+      key: "agent:main:observed-title",
+      agentId: "main",
+      sessionId: "observed-title-session",
+      kind: "direct",
+      label: "Observed conversation",
+    };
+    const { context, mount } = createMountedPanes([row]);
+    const pane = mount(row.key);
+    await refreshPane(pane);
+    // The current row observation can arrive before the retained roster catches up.
+    vi.spyOn(context.sessions, "presentation", "get").mockReturnValue({
+      result: sessionsResult([], 1),
+      agentId: "main",
+    });
+    const container = document.createElement("div");
+    renderPaneHeaderInto(
+      pane.renderPaneHeader(
+        createPaneHeaderWorkspaceFixture(pane.state),
+        undefined,
+        false,
+        undefined,
+        false,
+        null,
+      ),
+      container,
+    );
+    expect(container.querySelector(".chat-pane__session-title-text")?.textContent?.trim()).toBe(
+      row.label,
+    );
   });
 
   it("resolves cached titles for Home aliases using the current hello defaults", () => {
@@ -423,7 +518,7 @@ describe("chat pane session menu boundary", () => {
       "openclaw-chat-header-session-menu",
     );
     expect(menu?.session.label).toBe("Retained conversation");
-    pane.catalogSession = {
+    pane.history.catalogSession = {
       threadId: "catalog",
       name: "Imported conversation",
       status: "idle",
@@ -540,12 +635,15 @@ describe("chat pane session menu boundary", () => {
 
     await pane.handleHeaderSessionAction({ kind: "fork" }, session);
 
-    expect(create).toHaveBeenCalledWith({
-      parentSessionKey: session.key,
-      fork: true,
-      forkFrom: "last-completed",
-      agentId: "main",
-    });
+    expect(create).toHaveBeenCalledWith(
+      {
+        parentSessionKey: session.key,
+        fork: true,
+        forkFrom: "last-completed",
+        agentId: "main",
+      },
+      { signal: expect.any(AbortSignal) },
+    );
     expect(onPaneSessionChange).toHaveBeenCalledWith("single", "agent:main:forked");
   });
 
@@ -649,6 +747,15 @@ describe("chat pane session menu boundary", () => {
       agentId: "research",
     },
     {
+      name: "offline retained session",
+      key: "agent:main:current",
+      sessionId: "rename-current",
+      value: "Offline notes",
+      label: "Offline notes",
+      agentId: "main",
+      offline: true,
+    },
+    {
       name: "unchanged generated title",
       key: "agent:main:dashboard:generated",
       displayName: "Generated title",
@@ -657,7 +764,7 @@ describe("chat pane session menu boundary", () => {
     },
   ])(
     "renames only an edited captured session: $name",
-    ({ key, sessionId, displayName, value, label, agentId }) => {
+    ({ key, sessionId, displayName, value, label, agentId, offline }) => {
       const patch = vi.fn(async () => ({}));
       const { pane, state } = createTestChatPane({
         client: createGatewayBrowserClientFixture(),
@@ -665,6 +772,10 @@ describe("chat pane session menu boundary", () => {
       });
       state.sessionKey = key;
       state.assistantAgentId = agentId;
+      if (offline) {
+        pane.context.gateway.snapshot.phase = "offline";
+        state.connected = false;
+      }
       const session: GatewaySessionRow = {
         key,
         sessionId,
@@ -674,9 +785,9 @@ describe("chat pane session menu boundary", () => {
       };
       pane.beginHeaderRename(session);
       if (displayName) {
-        expect(pane.headerRenameValue).toBe(displayName);
+        expect(pane.headerPresentation.renameValue).toBe(displayName);
       }
-      pane.headerRenameValue = value;
+      pane.headerPresentation.renameValue = value;
       pane.commitHeaderRename();
       if (!label) {
         pane.beginHeaderRename(session);
@@ -687,7 +798,7 @@ describe("chat pane session menu boundary", () => {
       expect(patch).toHaveBeenCalledWith(key, { label }, { agentId, expectedSessionId: sessionId });
       if (key !== "global") {
         pane.beginHeaderRename({ ...session, label });
-        pane.headerRenameValue = "   ";
+        pane.headerPresentation.renameValue = "   ";
         pane.commitHeaderRename();
         expect(patch).toHaveBeenLastCalledWith(
           key,

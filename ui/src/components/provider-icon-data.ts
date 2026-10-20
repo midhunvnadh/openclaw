@@ -9,7 +9,6 @@ const PROVIDER_ICON_NAMES = new Set([
   "augment",
   "baseten",
   "bedrock",
-  "bifrost",
   "byteplus",
   "cerebras",
   "chutes",

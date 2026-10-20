@@ -1,8 +1,0 @@
-<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
-<!--
-Authored for OpenClaw: a generic LLM-gateway glyph showing many upstream
-providers converging on one routed endpoint. This is not a Bifrost trademark,
-logo, or brand mark, and implies no endorsement by the Bifrost project.
--->
-  <path d="M3 8h7M3 16h7M3 24h7M10 8c6 0 8 4 8 8M10 24c6 0 8-4 8-8M18 16h10M25 13l3 3-3 3"/>
-</svg>

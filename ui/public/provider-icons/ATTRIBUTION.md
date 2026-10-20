@@ -46,25 +46,6 @@ contributed by the LongCat team at Meituan with permission to use it here:
   `currentColor` so the mark renders on both light and dark themes; the
   geometry otherwise matches the cited source.
 
-## Bifrost icon
-
-`ProviderIcon-bifrost.svg` was authored for OpenClaw. It is a generic LLM-gateway
-glyph showing many upstream providers converging on one routed endpoint, and is
-not a Bifrost trademark, logo, or brand mark.
-
-The bundled provider's `assets/icon.png` is a light-background adaptation of the
-official Bifrost mark (`.github/assets/bifrost-logo.png`, Apache-2.0) from the
-Bifrost repository at commit
-`a30e57dd9339f0d0efabdfdb1c96e63c462c41ae`. The official asset is a white monogram
-on an opaque black field; this copy inverts the colors so it matches the other
-bundled provider icons, which use a dark or colored mark on a light background.
-The geometry is unchanged.
-
-- Source:
-  https://github.com/maximhq/bifrost/blob/a30e57dd9339f0d0efabdfdb1c96e63c462c41ae/.github/assets/bifrost-logo.png
-- Upstream license:
-  https://github.com/maximhq/bifrost/blob/a30e57dd9339f0d0efabdfdb1c96e63c462c41ae/LICENSE
-
 ## llama.cpp icon
 
 `ProviderIcon-llamacpp.svg` is a metadata-cleaned copy of
