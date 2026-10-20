@@ -97,30 +97,34 @@ Bifrost advertises provider-qualified model IDs such as `openai/gpt-4o-mini`,
 
 ## Authentication
 
-A gateway started without authentication accepts anonymous requests. Setup records that as
-`auth: "none"` on the provider row instead of storing a key that resolves to nothing.
+Authentication and virtual keys are independent layers in Bifrost, and this provider configures
+only the virtual-key layer. Keep them straight:
 
-When Bifrost enforces authentication or you use [virtual keys](https://docs.getbifrost.ai/features/governance/virtual-keys)
-for budgets and rate limits, supply the key during onboarding or set `BIFROST_VIRTUAL_KEY`. Use
-one virtual key per governance boundary so spend and limits stay attributable.
+| Layer          | Purpose                                       | Header                                     |
+| -------------- | --------------------------------------------- | ------------------------------------------ |
+| Authentication | Validates user identity (dashboard, sessions) | `Authorization: Basic/Bearer <user creds>` |
+| Virtual keys   | Request routing, budgets, rate limits         | `x-bf-vk: <key>`                           |
 
 ### Which keys this provider supports
 
-This provider sends the virtual key as `Authorization: Bearer <key>`. Bifrost accepts a virtual
-key on that header **only** in one of two configurations, so check yours before you rely on it:
+This provider sends the virtual key as `Authorization: Bearer <key>`. That works in exactly two
+configurations:
 
-| Your setup                                                           | Works                            |
-| -------------------------------------------------------------------- | -------------------------------- |
-| Keyless gateway                                                      | Yes — recorded as `auth: "none"` |
-| Key starts with `sk-bf-`, and Bifrost HTTP authentication is **off** | Yes                              |
-| Key does **not** start with `sk-bf-` (a legacy key)                  | **No**                           |
-| Bifrost HTTP authentication is **on** (`auth_config.is_enabled`)     | **No**                           |
+| Your setup                                                      | Works                            |
+| --------------------------------------------------------------- | -------------------------------- |
+| Keyless gateway                                                 | Yes — recorded as `auth: "none"` |
+| Key starts with `sk-bf-`, and Bifrost inference auth is **off** | Yes                              |
+| Legacy key without `sk-bf-`                                     | **No** — use `x-bf-vk`           |
+| Bifrost inference auth is **on**                                | **No** — use `x-bf-vk`           |
 
-The two failing rows both come from the same upstream rule: Bifrost honors legacy keys _only_
-through its own `x-bf-vk` header, and when HTTP authentication is enabled it consumes
-`Authorization` for that purpose instead. Setup succeeds in both cases and the failure surfaces
-later as a `401` from the gateway, which is why it is worth checking now rather than debugging
-it during a session.
+Inference auth (a virtual key required for every model request) is governed separately from
+dashboard HTTP authentication. Enabling `auth_config.is_enabled` makes the gateway require HTTP
+user credentials on `Authorization`; it does **not** change how virtual keys are accepted at
+inference. Conversely, when inference auth is enabled, `Authorization` carries user credentials
+and cannot carry a virtual key, so this provider's default header placement fails on both unsupported
+rows above. Setup itself succeeds in both cases — the failure surfaces as a `401` from the gateway
+only when the agent turns — which is why it is worth checking now rather than debugging it during
+a session.
 
 ### Sending the key through `x-bf-vk` instead
 
