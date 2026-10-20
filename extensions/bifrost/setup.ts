@@ -60,7 +60,8 @@ export async function configureBifrostInteractive(ctx: ProviderAuthContext) {
       configured ||
       BIFROST_BASE_URL,
   );
-  const token = normalizeOptionalSecretInput(ctx.opts?.bifrostApiKey ?? ctx.opts?.token);
+  const flagValue = normalizeOptionalSecretInput(ctx.opts?.bifrostApiKey);
+  const token = flagValue ?? normalizeOptionalSecretInput(ctx.opts?.token);
   const wantsKey =
     token ||
     (await ctx.prompter.confirm({
@@ -74,7 +75,9 @@ export async function configureBifrostInteractive(ctx: ProviderAuthContext) {
         envLabel: "BIFROST_VIRTUAL_KEY",
         promptMessage: "Enter Bifrost virtual key",
         token,
-        tokenProvider: token ? "bifrost" : undefined,
+        tokenProvider: flagValue
+          ? "bifrost"
+          : normalizeOptionalSecretInput(ctx.opts?.tokenProvider),
         env: ctx.env,
       })
     : undefined;
@@ -147,13 +150,13 @@ export async function configureBifrostInteractive(ctx: ProviderAuthContext) {
 
 export async function configureBifrostNonInteractive(ctx: ProviderAuthMethodNonInteractiveContext) {
   const baseUrl = normalizeBifrostBaseUrl(
-    ctx.opts.customBaseUrl ||
+    normalizeOptionalSecretInput(ctx.opts.customBaseUrl) ||
       resolveMergedModelProviderConfig(ctx.config, "bifrost")?.baseUrl ||
       BIFROST_BASE_URL,
   );
   const existing = resolveMergedModelProviderConfig(ctx.config, "bifrost");
   const flagValue = normalizeOptionalSecretInput(ctx.opts.bifrostApiKey ?? ctx.opts.customApiKey);
-  const anonymous = ctx.opts.customNoAuth || (existing?.auth === "none" && !flagValue);
+  const anonymous = ctx.opts.customNoAuth === true || (existing?.auth === "none" && !flagValue);
   const resolved = anonymous
     ? null
     : await ctx.resolveApiKey({
@@ -164,6 +167,12 @@ export async function configureBifrostNonInteractive(ctx: ProviderAuthMethodNonI
         envVar: "BIFROST_VIRTUAL_KEY",
         required: false,
       });
+  if (!resolved && !anonymous) {
+    ctx.runtime.error(
+      "Bifrost requires a virtual key or --custom-no-auth for anonymous inference.",
+    );
+    return null;
+  }
   let config = applyProviderAuthConfigPatch(
     ctx.config,
     buildBifrostConnectionConfig(ctx.config, baseUrl, !resolved),

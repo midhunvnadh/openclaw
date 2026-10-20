@@ -10,6 +10,9 @@ export default {
   catalog: {
     order: "simple",
     run: async (ctx) => {
+      if (ctx.providerIds && !ctx.providerIds.includes("bifrost")) {
+        return null;
+      }
       const configured = resolveMergedModelProviderConfig(ctx.config, "bifrost");
       if (!configured) {
         return null;
@@ -25,7 +28,7 @@ export default {
         run: async () => ({
           provider: {
             ...(await listBifrostModels({ ...ctx, apiKey: auth.discoveryApiKey })),
-            apiKey: configured.apiKey ?? auth.apiKey,
+            apiKey: configured.auth === "none" ? undefined : (configured.apiKey ?? auth.apiKey),
           },
         }),
       });
