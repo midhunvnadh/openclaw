@@ -171,6 +171,7 @@ export async function configureBifrostNonInteractive(ctx: ProviderAuthMethodNonI
     ctx.runtime.error(
       "Bifrost requires a virtual key or --custom-no-auth for anonymous inference.",
     );
+    ctx.runtime.exit(1);
     return null;
   }
   let config = applyProviderAuthConfigPatch(
@@ -190,6 +191,7 @@ export async function configureBifrostNonInteractive(ctx: ProviderAuthMethodNonI
     ctx.runtime.error(
       "No Bifrost models were discovered. Check the gateway or pass --custom-model-id.",
     );
+    ctx.runtime.exit(1);
     return null;
   }
   if (resolved) {

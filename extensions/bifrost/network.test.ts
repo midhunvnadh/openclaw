@@ -170,6 +170,35 @@ describe("Bifrost setup over HTTP", () => {
     ]);
   });
 
+  it("preserves configured routing headers during anonymous catalog refresh", async () => {
+    const provider = requireRegisteredProvider(
+      capturePluginRegistration(plugin).providers,
+      "bifrost",
+    );
+    await provider.catalog?.run({
+      config: {
+        models: {
+          providers: {
+            bifrost: {
+              baseUrl,
+              auth: "none",
+              headers: { "x-tenant": "synthetic-tenant" },
+              request: { headers: { "x-route": "synthetic-route" } },
+              models: [],
+            },
+          },
+        },
+      },
+      env: {},
+      resolveProviderApiKey: () => ({ apiKey: "synthetic-key", discoveryApiKey: "synthetic-key" }),
+      resolveProviderAuth: () => ({ apiKey: undefined, mode: "none", source: "none" }),
+    });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.headers.authorization).toBeUndefined();
+    expect(requests[0]?.headers["x-tenant"]).toBe("synthetic-tenant");
+    expect(requests[0]?.headers["x-route"]).toBe("synthetic-route");
+  });
+
   it("rejects revoked setup authority before sending a request", async () => {
     const revoked = new Error("Setup configuration changed; run setup again.");
     await expect(
@@ -208,4 +237,26 @@ it("non-interactive anonymous setup never resolves or stores a credential", asyn
     auth: "none",
     models: [expect.objectContaining({ id: MODEL_ID })],
   });
+});
+
+it("reports a failing exit status when non-interactive credentials are missing", async () => {
+  const provider = requireRegisteredProvider(
+    capturePluginRegistration(plugin).providers,
+    "bifrost",
+  );
+  const runtime = createRuntimeSpies();
+  const result = await provider.auth[0]?.runNonInteractive?.({
+    authChoice: "bifrost-api-key",
+    config: {},
+    baseConfig: {},
+    opts: { customBaseUrl: "http://127.0.0.1:12345/v1", customModelId: MODEL_ID },
+    runtime,
+    resolveApiKey: async () => null,
+    toApiKeyCredential: () => {
+      throw new Error("Missing credentials must not be stored");
+    },
+  });
+  expect(result).toBeNull();
+  expect(runtime.error).toHaveBeenCalledWith(expect.stringContaining("--custom-no-auth"));
+  expect(runtime.exit).toHaveBeenCalledWith(1);
 });
